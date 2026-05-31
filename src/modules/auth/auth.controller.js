@@ -25,18 +25,16 @@ async function solicitarCodigo(req, res) {
 async function verificarCodigo(req, res) {
   try {
     const { celular, codigo } = req.body;
-    //Verifica se codigo foi fornecido
-    if (!codigo) {
-      res.status(400).json({
-        erro: "Campo codigo vazio",
-      });
+    if (!celular) {
+      res.status(400).json({ erro: "Campo celular obrigatório" });
       return;
     }
-    //Chama o service para validar o codigo
-    await authService.verificarCodigo(celular, codigo);
-    res.status(200).json({
-      mensagem: "Código validade com sucesso",
-    });
+    if (!codigo) {
+      res.status(400).json({ erro: "Campo codigo vazio" });
+      return;
+    }
+    const token = await authService.verificarCodigo(celular, codigo);
+    res.status(200).json({ token });
   } catch (error) {
     res.status(400).json({
       erro: error.message,

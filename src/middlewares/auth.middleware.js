@@ -1,41 +1,62 @@
+const pool = require("../config/database.js");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
-const verificarToken = (req, res, next) => {
-  //Receber token do header Authorization
-  const tokenHeader = req.headers["authorization"];
-
+async function authMiddleware(req, res, next) {
   try {
+    //Ler header Authorization
+    const tokenHeader = req.headers.authorization;
+
     //Verificar se token foi enviado
     if (!tokenHeader) {
-      return res.status(401).json({ erro: "Token nao fornecido" });
+      return res.status(401).json({ erro: "Token não fornecido" });
     }
 
-    //Separar tipo Bearer do token
+    //Separar Bearer do token
     const partesToken = tokenHeader.split(" ");
 
-    //Validar formato do token
+    //Validar formato Bearer
     if (partesToken.length !== 2 || partesToken[0] !== "Bearer") {
       return res.status(401).json({ erro: "Token mal formatado" });
     }
 
-    //Salvar token puro
     const token = partesToken[1];
 
-    //Validar token
+    //Validar JWT
     const payload = jwt.verify(token, process.env.JWT_SECRET);
 
-    //Salvar dados do usuario na requisicao
-    req.user = {
+    //Buscar sessoes ativas do usuario
+    const resultado = await pool.query(
+      "SELECT * FROM sessoes WHERE user_id = $1 AND expira_em > now()",
+      [payload.user_id],
+    );
+
+    //Comparar token com hash da sessao
+    let sessaoValida = false;
+    for (let i = 0; i < resultado.rows.length; i++) {
+      const sessao = resultado.rows[i];
+      const match = await bcrypt.compare(token, sessao.token_hash);
+      if (match) {
+        sessaoValida = true;
+        break;
+      }
+    }
+
+    //Verificar se encontrou sessao valida
+    if (!sessaoValida) {
+      return res.status(401).json({ erro: "Sessão inválida ou expirada" });
+    }
+
+    //Anexar usuario na requisicao
+    req.usuario = {
       user_id: payload.user_id,
       tipo_base: payload.tipo_base,
     };
 
-    //Continuar fluxo
     next();
-  } catch (erro) {
-    //Token invalido ou expirado
-    return res.status(401).json({ erro: "Token invalido ou expirado" });
+  } catch (error) {
+    return res.status(401).json({ erro: "Token inválido ou expirado" });
   }
-};
+}
 
-module.exports = verificarToken;
+module.exports = authMiddleware;

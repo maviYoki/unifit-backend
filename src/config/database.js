@@ -1,23 +1,35 @@
-require("dotenv").config();
+require("./env.js");
 
-//Validação das variáveis de ambiente
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
-  console.error(
-    "Verificar variáveis de ambiente: SUPABASE_URL e SUPABASE_SERVICE_KEY",
-  );
-  console.error("Certifique-se de estarem definidas no arquivo .env");
-  console.error("Exemplo:");
-  console.error("SUPABASE_URL=https://seu-projeto.supabase.co");
-  console.error("SUPABASE_SERVICE_KEY=sb_secret_XXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+if (!process.env.DATABASE_URL) {
+  console.error("Verificar variável de ambiente: DATABASE_URL");
+  console.error("Certifique-se de estar definida no arquivo .env na raiz do projeto");
   process.exit(1);
 }
 
-const { createClient } = require("@supabase/supabase-js");
+const { Pool } = require("pg");
 
-//Criando o cliente do Supabase
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY,
-);
-// Confirmação de conexão
-console.log("Conectado com o Supabase com sucesso!");
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+});
+
+async function testarConexao() {
+  try {
+    await pool.query("SELECT 1");
+    console.log("Conectado com o banco de dados com sucesso!");
+    return true;
+  } catch (error) {
+    console.error("Erro ao conectar no banco:", error.message);
+    console.error("");
+    console.error("Dicas:");
+    console.error("1. Supabase → Settings → Database → Connection string");
+    console.error("2. Escolha 'Session pooler' (não 'Direct connection')");
+    console.error("3. Copie a URI e cole no .env como DATABASE_URL");
+    console.error("4. Troque [YOUR-PASSWORD] pela senha real, SEM colchetes");
+    process.exit(1);
+  }
+}
+
+testarConexao();
+
+module.exports = pool;

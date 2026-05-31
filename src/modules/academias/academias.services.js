@@ -1,12 +1,12 @@
 const fs = require("fs"); //Manipular arquivos
 const csv = require("csv-parser"); //Ler arquivo CSV
-const pool = require("../config/database"); //Conexao com BD
+const pool = require("../../config/database.js");
 
 //Importar membros via CSV
 async function importarMembrosCSV(academiaId, userId, filePath) {
   //Verificar permissao de instrutor
   const permissao = await pool.query(
-    "SELECT 1 FROM academia_membros WHERE user_id = $1 AND academia_id = $2 AND papel = 'INSTRUTOR' AND ativo = true",
+    "SELECT 1 FROM academia_membros WHERE user_id = $1 AND academia_id = $2 AND papel = 'instrutor' AND ativo = true",
     [userId, academiaId],
   );
 
@@ -51,7 +51,7 @@ async function importarMembrosCSV(academiaId, userId, filePath) {
 
       if (u.rows.length === 0) {
         const novo = await pool.query(
-          "INSERT INTO usuarios (nome, celular) VALUES ($1,$2) RETURNING *",
+          "INSERT INTO usuarios (nome, celular, tipo_base) VALUES ($1,$2,'comum') RETURNING *",
           [nome, celular],
         );
 

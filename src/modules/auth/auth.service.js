@@ -1,50 +1,26 @@
-const pool = require("../../config/database.js"); //Conexao com o BD
-const jwt = require("jsonwebtoken"); //Criar e verificar tokens
-const bcrypt = require("bcryptjs"); //Criptografar dados
+const pool = require("../../config/database.js");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
-async function solicitarCodigo(celular) {
-  //Consultar numero no BD
-  const resultado = await pool.query(
-    "SELECT * FROM usuarios WHERE celular = $1",
-    [celular],
-  );
-
-  //Verificar se retornou vazio
-  if (resultado.rows.length === 0) {
-    throw new Error("Usuário não encontrado");
-  }
-
-  //Salvar usuario encontrado
-  const usuario = resultado.rows[0];
-
-  //Consultar status ativo do membro
+async function verificarMembroAtivo(userId) {
   const statusMembro = await pool.query(
-    "SELECT * FROM academia_membros WHERE user_id = $1 AND ativo = true",
-    [usuario.id],
+    "SELECT 1 FROM academia_membros WHERE user_id = $1 AND ativo = true",
+    [userId],
   );
 
-  //Verificar se usuario esta inativo
   if (statusMembro.rows.length === 0) {
     throw new Error("Usuário inativo, procure regularizar cadastro");
   }
+}
 
-  //Gerar codigo de acesso
-  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+async function enviarCodigoWhatsapp(celular, codigo) {
+  if (!process.env.ZAPI_INSTANCE_ID || !process.env.ZAPI_TOKEN) {
+    throw new Error("Configuração Z-API incompleta");
+  }
 
-  //Definir expiracao para 10 minutos
-  const expiraEm = new Date(new Date().getTime() + 10 * 60 * 1000);
-
-  //Inserir codigo gerado no BD
-  await pool.query(
-    "INSERT INTO otp_codes (celular, codigo, expira_em) VALUES ($1,$2,$3)",
-    [celular, codigo, expiraEm],
-  );
-
-  //Enviar codigo via API
-  await fetch(
-    `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE}/token/${process.env.ZAPI_TOKEN}/send-text`,
+  const resposta = await fetch(
+    `https://api.z-api.io/instances/${process.env.ZAPI_INSTANCE_ID}/token/${process.env.ZAPI_TOKEN}/send-text`,
     {
-      //Configurar requisicao
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -54,43 +30,74 @@ async function solicitarCodigo(celular) {
     },
   );
 
-  //Retornar mensagem de sucesso
-  return "Codigo enviado com sucesso para o Whatsapp: " + celular;
+  if (!resposta.ok) {
+    throw new Error("Falha ao enviar código pelo WhatsApp");
+  }
+}
+
+async function solicitarCodigo(celular) {
+  const celularLimpo = String(celular).trim();
+
+  const resultado = await pool.query(
+    "SELECT * FROM usuarios WHERE celular = $1",
+    [celularLimpo],
+  );
+
+  if (resultado.rows.length === 0) {
+    throw new Error("Usuário não encontrado");
+  }
+
+  const usuario = resultado.rows[0];
+
+  await verificarMembroAtivo(usuario.id);
+
+  const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiraEm = new Date(new Date().getTime() + 10 * 60 * 1000);
+
+  await pool.query(
+    "INSERT INTO otp_codes (celular, codigo, expira_em) VALUES ($1,$2,$3)",
+    [celularLimpo, codigo, expiraEm],
+  );
+
+  await enviarCodigoWhatsapp(celularLimpo, codigo);
+
+  return "Codigo enviado com sucesso para o Whatsapp: " + celularLimpo;
 }
 
 async function verificarCodigo(celular, codigo) {
-  //Consultar codigo OTP valido
+  const celularLimpo = String(celular).trim();
+  const codigoLimpo = String(codigo).trim();
+
   const resultado = await pool.query(
     "SELECT * FROM otp_codes WHERE celular = $1 AND codigo = $2 AND usado = false AND expira_em > now()",
-    [celular, codigo],
+    [celularLimpo, codigoLimpo],
   );
 
-  //Verificar se codigo e valido
   if (resultado.rows.length === 0) {
     throw new Error("Código inválido ou expirado");
   }
 
-  //Salvar OTP encontrado
   const otp = resultado.rows[0];
 
-  //Marcar OTP como usado
   await pool.query("UPDATE otp_codes SET usado = true WHERE id = $1", [otp.id]);
 
-  //Consultar usuario pelo celular
   const usuarioResult = await pool.query(
     "SELECT * FROM usuarios WHERE celular = $1",
-    [celular],
+    [celularLimpo],
   );
 
-  //Verificar se usuario existe
   if (usuarioResult.rows.length === 0) {
     throw new Error("Usuário não encontrado");
   }
 
-  //Salvar usuario encontrado
   const usuario = usuarioResult.rows[0];
 
-  //Gerar token JWT
+  await verificarMembroAtivo(usuario.id);
+
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET não configurado");
+  }
+
   const token = jwt.sign(
     {
       user_id: usuario.id,
@@ -98,23 +105,18 @@ async function verificarCodigo(celular, codigo) {
     },
     process.env.JWT_SECRET,
     {
-      expiresIn: "30d",
+      expiresIn: process.env.JWT_EXPIRES_IN || "30d",
     },
   );
 
-  //Gerar hash do token
   const tokenHash = await bcrypt.hash(token, 10);
-
-  //Definir expiracao da sessao
   const expiraEm = new Date(new Date().getTime() + 30 * 24 * 60 * 60 * 1000);
 
-  //Inserir sessao no BD
   await pool.query(
     "INSERT INTO sessoes (user_id, token_hash, expira_em) VALUES ($1,$2,$3)",
     [usuario.id, tokenHash, expiraEm],
   );
 
-  //Retornar token
   return token;
 }
 

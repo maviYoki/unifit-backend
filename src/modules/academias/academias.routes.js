@@ -1,26 +1,24 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const controller = require("../controllers/academias.controller");
-const verificarToken = require("../middlewares/verificarToken");
+const controller = require("./academias.controller.js");
+const authMiddleware = require("../../middlewares/auth.middleware.js");
 
 const upload = multer({ dest: "uploads/" });
 
-//Importar CSV
 router.post(
-  "/academias/:id/importar-csv",
+  "/:id/importar-csv",
+  authMiddleware,
   upload.single("file"),
   controller.importarCSV,
 );
 
-//Ativar ou desativar aluno
 router.patch(
-  "/academias/:id/membros/:userId",
-  verificarToken,
+  "/:id/membros/:userId",
+  authMiddleware,
   controller.alterarStatusMembro,
 );
 
-//Rota para listar membros da academia
-router.get("/academias/:id/membros", verificarToken, controller.listarMembros);
+router.get("/:id/membros", authMiddleware, controller.listarMembros);
 
 module.exports = router;
